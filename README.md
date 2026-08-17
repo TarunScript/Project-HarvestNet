@@ -39,7 +39,7 @@ Farmer (voice/text/photo)
 
 ## Team
 
-HarvestNet — built by [team name].
+HarvestNet — built by HackOps4G.
 
 ## Status
 

@@ -1,0 +1,19 @@
+{
+    "scripts":  {
+                    "test":  "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests",
+                    "lint":  "tsc --noEmit",
+                    "build":  "tsc",
+                    "dev":  "tsx watch src/index.ts",
+                    "start":  "node dist/index.js"
+                },
+    "type":  "module",
+    "types":  "./dist/index.d.ts",
+    "version":  "1.0.0",
+    "license":  "MIT",
+    "name":  "@harvestnet/rules-engine",
+    "private":  true,
+    "main":  "./dist/index.js",
+    "dependencies":  {
+                         "@harvestnet/schemas":  "1.0.0"
+                     }
+}

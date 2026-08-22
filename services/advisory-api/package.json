@@ -1,0 +1,19 @@
+{
+    "name":  "@harvestnet/advisory-api",
+    "version":  "1.0.0",
+    "private":  true,
+    "main":  "./dist/index.js",
+    "types":  "./dist/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc",
+                    "start":  "node dist/index.js",
+                    "dev":  "tsx watch src/index.ts",
+                    "test":  "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests",
+                    "lint":  "tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@harvestnet/schemas":  "1.0.0"
+                     },
+    "license":  "MIT",
+    "type":  "module"
+}

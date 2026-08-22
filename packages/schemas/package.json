@@ -1,0 +1,17 @@
+{
+    "name":  "@harvestnet/schemas",
+    "version":  "1.0.0",
+    "description":  "Shared canonical data models for Project-HarvestNet â€” single source of truth (Section 5 + Addendum Sections 18â€“21)",
+    "main":  "./dist/index.js",
+    "types":  "./dist/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc",
+                    "test":  "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests",
+                    "lint":  "tsc --noEmit"
+                },
+    "files":  [
+                  "dist"
+              ],
+    "license":  "MIT",
+    "type":  "module"
+}

@@ -1,0 +1,598 @@
+openapi: 3.0.3
+info:
+  title: Project-HarvestNet Open Data Exchange API
+  description: |
+    BRICS AgriN Digital Public Infrastructure — open, sovereign Agri Data Exchange.
+
+    This API serves as the Layer 4 (L4) public interface for Project-HarvestNet,
+    exposing regenerative crop advisory, disease diagnosis, regional outbreak alerts,
+    farmer identity management, land plot mapping, and DIY soil testing.
+
+    **Novelty differentiators:**
+    - N1: Deterministic rules engine — the LLM never decides agronomy
+    - N2: Regional outbreak early-warning signal from aggregated diagnosis events
+    - N3: Confidence-gated human escalation for uncertain diagnoses
+  version: 1.0.0
+  contact:
+    name: Project-HarvestNet Team
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+# ═══════════════════════════════════════════════════════════════
+# Section 8 (v2) + Addendum Section 23 (v3) paths
+# ═══════════════════════════════════════════════════════════════
+paths:
+  # ── v2 Core Endpoints (Section 8) ────────────────────────────
+
+  /api/v1/advisory/regenerative:
+    post:
+      summary: Fetch localized regenerative crop advisory
+      description: |
+        Computes a regenerative agriculture advisory for the given location.
+        Data flow (Section 4.1):
+        1. Fetches soil, NDVI, weather data from L3 (data-aggregator)
+        2. Runs L2a rules engine (deterministic, N1)
+        3. Narrates result via Gemini (L2b, narrate-only)
+        4. Returns full AgriDPIPayload
+      tags: [Advisory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude, current_crop_history, language]
+              properties:
+                latitude:
+                  type: number
+                  example: 12.9716
+                longitude:
+                  type: number
+                  example: 77.5946
+                current_crop_history:
+                  type: array
+                  items:
+                    type: string
+                  example: ["rice", "wheat"]
+                language:
+                  type: string
+                  example: "kn-IN"
+                farmer_id:
+                  type: string
+                  description: Optional — links advisory to farmer history (Addendum 18.5)
+      responses:
+        "200":
+          description: AgriDPIPayload (Section 5)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgriDPIPayload"
+        "400":
+          description: Missing required fields
+        "502":
+          description: Backend service unavailable
+
+  /api/v1/diagnosis:
+    post:
+      summary: Submit a crop photo for disease diagnosis
+      description: |
+        Accepts a crop photo and returns a diagnosis via Gemini Vision,
+        referenced against PlantVillage disease classes.
+        If confidence_score < 0.6, sets escalate_to_extension_officer: true (N3).
+        Diagnosis events feed the outbreak-aggregator (N2, Section 4.3).
+      tags: [Diagnosis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_url, crop]
+              properties:
+                image_url:
+                  type: string
+                  description: URL of the crop photo
+                crop:
+                  type: string
+                  example: "tomato"
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                farmer_id:
+                  type: string
+      responses:
+        "200":
+          description: DiagnosisEvent + farmer-facing remedy text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisEvent"
+
+  /api/v1/alerts/regional:
+    get:
+      summary: List active regional outbreak alerts (N2)
+      description: |
+        Returns active outbreak alerts aggregated from DiagnosisEvents.
+        Section 4.3: grouped by geohash5km + condition over a rolling window.
+      tags: [Alerts]
+      parameters:
+        - name: geohash5km
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter alerts by geographic region (5km geohash cell)
+      responses:
+        "200":
+          description: OutbreakAlert[] (Section 5)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OutbreakAlert"
+
+  # ── v3 Addendum Endpoints (Section 23) ───────────────────────
+
+  /api/v1/farmers/register:
+    post:
+      summary: Register a farmer and issue a farmer_id
+      description: Creates a new FarmerProfile with consent (Addendum Section 18).
+      tags: [Farmer Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name, phone_number, preferred_language, consent]
+              properties:
+                display_name:
+                  type: string
+                  example: "Raju Patil"
+                phone_number:
+                  type: string
+                  description: Raw phone number — stored as hash by identity-api
+                preferred_language:
+                  type: string
+                  example: "kn-IN"
+                home_region_geohash5km:
+                  type: string
+                consent:
+                  $ref: "#/components/schemas/FarmerConsentInput"
+      responses:
+        "201":
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  farmer_id:
+                    type: string
+                  registered_at:
+                    type: string
+                    format: date-time
+
+  /api/v1/farmers/{farmer_id}:
+    get:
+      summary: Fetch a farmer profile
+      tags: [Farmer Identity]
+      parameters:
+        - name: farmer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FarmerProfile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FarmerProfile"
+        "404":
+          description: Farmer not found
+    patch:
+      summary: Update profile or consent
+      tags: [Farmer Identity]
+      parameters:
+        - name: farmer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                preferred_language:
+                  type: string
+                consent:
+                  $ref: "#/components/schemas/FarmerConsentInput"
+      responses:
+        "200":
+          description: Updated FarmerProfile
+
+  /api/v1/farmers/{farmer_id}/plots:
+    post:
+      summary: Save a drawn land-plot boundary
+      description: |
+        Accepts a GeoJSON Polygon boundary. Returns plot_id with derived
+        area_hectares (Shoelace formula) and centroid (arithmetic mean).
+      tags: [Land Plots]
+      parameters:
+        - name: farmer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [boundary]
+              properties:
+                boundary:
+                  $ref: "#/components/schemas/GeoJSONPolygon"
+                label:
+                  type: string
+                  example: "north field"
+      responses:
+        "201":
+          description: Plot created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plot_id:
+                    type: string
+                  area_hectares:
+                    type: number
+                  centroid:
+                    type: object
+                    properties:
+                      latitude:
+                        type: number
+                      longitude:
+                        type: number
+    get:
+      summary: List a farmer's plots
+      tags: [Land Plots]
+      parameters:
+        - name: farmer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of LandPlot objects
+
+  /api/v1/plots/{plot_id}:
+    get:
+      summary: Fetch a plot plus latest NDVI/soil snapshot
+      description: |
+        Returns plot data with a spatial snapshot proxied from
+        data-aggregator using the plot's centroid coordinates.
+      tags: [Land Plots]
+      parameters:
+        - name: plot_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: LandPlot with spatial snapshot
+        "404":
+          description: Plot not found
+
+  /api/v1/soil-tests:
+    post:
+      summary: Submit a DIY soil test, returns SoilTestResult
+      description: |
+        Accepts DIY soil test observations (Mode A: manual entry, Mode B: photo).
+        Returns a rule-based soil assessment with fired_rules trace (Addendum 20).
+      tags: [Soil Testing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoilTestSubmission"
+      responses:
+        "200":
+          description: SoilTestResult
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoilTestResult"
+
+  /api/v1/soil-tests/{result_id}:
+    get:
+      summary: Fetch a past soil-test result
+      tags: [Soil Testing]
+      parameters:
+        - name: result_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SoilTestResult including fired_rules trace
+        "404":
+          description: Result not found
+
+  /api/v1/farmers/{farmer_id}/soil-tests:
+    get:
+      summary: A farmer's soil-test history
+      description: Feeds Section 25 trend tracking.
+      tags: [Soil Testing]
+      parameters:
+        - name: farmer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of SoilTestResult objects
+
+# ═══════════════════════════════════════════════════════════════
+# Shared schemas
+# ═══════════════════════════════════════════════════════════════
+components:
+  schemas:
+    RecommendationCandidate:
+      type: object
+      description: Output of the L2a rules engine (Section 5)
+      properties:
+        fired_rules:
+          type: array
+          items:
+            type: string
+        canopy_stress:
+          type: string
+          enum: [Low, Moderate, High]
+        recommended_primary_crop:
+          type: string
+        companion_intercrop:
+          type: string
+          nullable: true
+        tillage_practice:
+          type: string
+        soil_amendments:
+          type: array
+          items:
+            type: string
+
+    AgriDPIPayload:
+      type: object
+      description: Public L4 advisory response (Section 5)
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        soil_metrics:
+          type: object
+          properties:
+            ph_level:
+              type: number
+            organic_carbon_percentage:
+              type: number
+            texture_classification:
+              type: string
+        remote_sensing:
+          type: object
+          properties:
+            sentinel2_ndvi_mean:
+              type: number
+        regenerative_plan:
+          $ref: "#/components/schemas/RecommendationCandidate"
+        explanation_text:
+          type: string
+
+    DiagnosisEvent:
+      type: object
+      description: Disease diagnosis event (Section 5)
+      properties:
+        event_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        geohash5km:
+          type: string
+        crop:
+          type: string
+        identified_condition:
+          type: string
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        escalate_to_extension_officer:
+          type: boolean
+
+    OutbreakAlert:
+      type: object
+      description: Regional outbreak alert (Section 5, N2)
+      properties:
+        alert_id:
+          type: string
+        geohash5km:
+          type: string
+        condition:
+          type: string
+        farmer_report_count:
+          type: integer
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum: [Watch, Elevated, High]
+
+    FarmerProfile:
+      type: object
+      description: Farmer identity profile (Addendum 18.3)
+      properties:
+        farmer_id:
+          type: string
+        registered_at:
+          type: string
+          format: date-time
+        display_name:
+          type: string
+        phone_number_hash:
+          type: string
+        preferred_language:
+          type: string
+        home_region_geohash5km:
+          type: string
+        consent:
+          $ref: "#/components/schemas/FarmerConsent"
+        plot_ids:
+          type: array
+          items:
+            type: string
+
+    FarmerConsent:
+      type: object
+      properties:
+        consent_version:
+          type: string
+        data_sharing_with_partners:
+          type: boolean
+        climate_trend_aggregation:
+          type: boolean
+        recorded_at:
+          type: string
+          format: date-time
+
+    FarmerConsentInput:
+      type: object
+      required: [data_sharing_with_partners]
+      properties:
+        consent_version:
+          type: string
+          default: "1.0"
+        data_sharing_with_partners:
+          type: boolean
+        climate_trend_aggregation:
+          type: boolean
+          default: false
+
+    GeoJSONPolygon:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+
+    SoilTestSubmission:
+      type: object
+      description: DIY soil test input (Addendum 20.4)
+      required: [farmer_id, method, observed_inputs]
+      properties:
+        farmer_id:
+          type: string
+        plot_id:
+          type: string
+          nullable: true
+        method:
+          type: string
+          enum: [diy_manual, diy_photo, lab_upload]
+        observed_inputs:
+          type: object
+          properties:
+            jar_test_ratio:
+              type: object
+              nullable: true
+              properties:
+                sand_pct:
+                  type: number
+                silt_pct:
+                  type: number
+                clay_pct:
+                  type: number
+            ph_strip_color_band:
+              type: string
+              nullable: true
+            soil_color_om_band:
+              type: string
+              nullable: true
+            drainage_test_minutes:
+              type: number
+              nullable: true
+        photo_url:
+          type: string
+          nullable: true
+
+    SoilTestResult:
+      type: object
+      description: Soil test assessment output (Addendum 20.4)
+      properties:
+        result_id:
+          type: string
+        submission_id:
+          type: string
+        soil_metrics:
+          type: object
+          properties:
+            ph_level:
+              type: number
+            organic_carbon_percentage:
+              type: number
+            texture_classification:
+              type: string
+        confidence:
+          type: string
+          enum: [diy-estimate, diy-photo-estimate, lab-grade]
+        escalate_to_extension_officer:
+          type: boolean
+        fired_rules:
+          type: array
+          items:
+            type: string
+        soil_amendments:
+          type: array
+          items:
+            type: string
+        suitable_crops:
+          type: array
+          items:
+            type: string
+        explanation_text:
+          type: string
